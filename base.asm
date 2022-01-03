@@ -6,8 +6,8 @@ DATASEG
 WHITE dw 0Fh
 BLACK dw 00h
 GREEN dw 30h
-BRICK_WIDTH dw 30
-BRICK_HEIGHT dw 20
+BRICK_WIDTH dw 50
+BRICK_HEIGHT dw 30
 
 prev_time db 0
 racketx dw 40
@@ -17,7 +17,8 @@ bally dw 101
 ballspeedx dw 2
 ballspeedy dw 2
 
-bricks_array dw 10,10,0Eh,1, 80,50,22h,1, 100,100,0Fh,0, 0
+; 28h = red. 2Ah = orange.
+bricks_array dw 20,10,28h,1, 76,10,28h,1, 132,10,28h,1, 188,10,28h,1, 244,10,28h,1, 20,46,2Ah,1, 76,46,2Ah,1, 132,46,2Ah,1, 188,46,2Ah,1, 244,46,2Ah,1, 0
 
 CODESEG
 
@@ -178,6 +179,46 @@ proc draw_bricks ; ax = bricks array offset, brick[8]=x[2]y[2]color[2]present[2]
 
     draw_bricks_end:
     pop di
+    pop ax
+    ret
+endp
+
+;; WIP: checks if ball is in collision with a brick given as params
+proc collision_field ; x, y
+    push bp
+    mov bp, sp
+    push bx
+    push cx
+    push dx
+    
+    mov ch, [bp+4] ;x1
+    mov cl, [bp+6] ;y1
+    mov dh, ch ;x2
+    add dh, [BRICK_WIDTH]
+    dec dh
+    mov dl, cl ;y2
+    add dl, [BRICK_HEIGHT]
+    dec dl
+
+    top_collision:
+        mov bh, [bp+4] 
+        mov bl, [bp+6]
+
+    pop dx
+    pop cx
+    pop bx
+    pop bp
+    ret 2
+endp
+
+;; WIP: check if ball is in collision with any brick
+proc collide_bricks
+    push ax
+    push cx
+    
+    nop
+
+    pop cx
     pop ax
     ret
 endp
