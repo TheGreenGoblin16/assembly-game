@@ -6,19 +6,21 @@ DATASEG
 WHITE dw 0Fh
 BLACK dw 00h
 GREEN dw 30h
-BRICK_WIDTH dw 50
-BRICK_HEIGHT dw 30
+BRICK_WIDTH dw 45
+BRICK_HEIGHT dw 20
+BRICK_WIDTH_PLUS dw 47
+BRICK_HEIGHT_PLUS dw 22
 
 prev_time db 0
 racketx dw 40
 rackety dw 191
-ballx dw 101
+ballx dw 91
 bally dw 101
 ballspeedx dw 2
 ballspeedy dw 2
 
-; 28h = red. 2Ah = orange.
-bricks_array dw 20,10,28h,1, 76,10,28h,1, 132,10,28h,1, 188,10,28h,1, 244,10,28h,1, 20,46,2Ah,1, 76,46,2Ah,1, 132,46,2Ah,1, 188,46,2Ah,1, 244,46,2Ah,1, 0
+; 28h = red. 2Ah = orange. 2Ch = yellow. 2Fh = green. 34h = cyan.
+bricks_array dw 5,5,28h,1, 55,5,28h,1, 105,5,28h,1, 155,5,28h,1, 205,5,28h,1, 255,5,28h,1, 5,30,2Ah,1, 55,30,2Ah,1, 105,30,2Ah,1, 155,30,2Ah,1, 205,30,2Ah,1, 255,30,2Ah,1, 0
 
 CODESEG
 
@@ -144,7 +146,7 @@ proc debug_char
     push dx
 
     mov ah, 02h
-    mov dl, 101
+    mov dl, "1"
     int 21h
 
     pop dx
@@ -154,71 +156,150 @@ endp
 
 proc draw_bricks ; ax = bricks array offset, brick[8]=x[2]y[2]color[2]present[2]
     push ax
-    push di
+    push si
 
-    mov di, ax
+    mov si, ax
     draw_bricks_loop:
-        mov ax, [di]
+        mov ax, [si]
         cmp ax, 00h
         je draw_bricks_end
 
-        mov ax, [di+6]
+        mov ax, [si+6]
         cmp ax, 0
-        je draw_bricks_continue
-
-        push [di+4]
-        push [BRICK_HEIGHT]
-        push [BRICK_WIDTH]
-        push [di+2]
-        push [di+0]
-        call draw_rect
+        je draw_bricks_nonpresent
+        push [si+4]
+        jmp draw_bricks_continue
+        draw_bricks_nonpresent:
+        push [BLACK]
         
         draw_bricks_continue:
-        add di, 8
+        push [BRICK_HEIGHT]
+        push [BRICK_WIDTH]
+        push [si+2]
+        push [si+0]
+        call draw_rect
+        
+        add si, 8
         jmp draw_bricks_loop
 
     draw_bricks_end:
-    pop di
+    pop si
     pop ax
     ret
 endp
 
-;; WIP: checks if ball is in collision with a brick given as params
-proc collision_field ; x, y
+;; check if ball is in collision with a brick given as params
+proc collision_field ; x, y   ; ax... 0=none, 1=top/buttom, 2=left/right
     push bp
     mov bp, sp
     push bx
     push cx
     push dx
     
-    mov ch, [bp+4] ;x1
-    mov cl, [bp+6] ;y1
-    mov dh, ch ;x2
-    add dh, [BRICK_WIDTH]
-    dec dh
-    mov dl, cl ;y2
-    add dl, [BRICK_HEIGHT]
-    dec dl
-
+    mov al, 0
     top_collision:
-        mov bh, [bp+4] 
-        mov bl, [bp+6]
+        mov cx, [bp+4] ;x
+        mov dx, [bp+6] ;y
+        sub dx, 2
+        cmp dx, [bally]
+        jne buttom_collision
+        dec cx
+        mov dx, [ballx]
+        sub dx, cx
+        cmp dx, [BRICK_WIDTH_PLUS]
+        ja buttom_collision
+        mov al, 1
+        jmp collision_field_end
+    buttom_collision:
+        mov cx, [bp+4]
+        mov dx, [bp+6]
+        add dx, [BRICK_HEIGHT]
+        inc dx
+        cmp dx, [bally]
+        jne left_collision
+        dec cx
+        mov dx, [ballx]
+        sub dx, cx
+        cmp dx, [BRICK_WIDTH_PLUS]
+        ja left_collision
+        mov al, 1
+        jmp collision_field_end
+    left_collision:
+        mov cx, [bp+4]
+        mov dx, [bp+6]
+        sub cx, 2
+        cmp cx, [ballx]
+        jne right_collision
+        dec dx
+        mov cx, [bally]
+        sub cx, dx
+        cmp cx, [BRICK_HEIGHT_PLUS]
+        ja right_collision
+        mov al, 2
+        jmp collision_field_end
+    right_collision:
+        mov cx, [bp+4]
+        mov dx, [bp+6]
+        add cx, [BRICK_WIDTH]
+        inc cx
+        cmp cx, [ballx]
+        jne collision_field_end
+        dec dx
+        mov cx, [bally]
+        sub cx, dx
+        cmp cx, [BRICK_HEIGHT_PLUS]
+        ja collision_field_end
+        mov al, 2
 
+    collision_field_end:
     pop dx
     pop cx
     pop bx
     pop bp
-    ret 2
+    ret 4
 endp
 
-;; WIP: check if ball is in collision with any brick
-proc collide_bricks
+;; check if ball is in collision with any brick
+proc collide_bricks ; ax = bricks array offset
     push ax
-    push cx
+    push si
     
-    nop
+    mov si, ax
+    collide_bricks_loop:
+        mov ax, [si]
+        cmp ax, 0
+        je collide_bricks_end
 
-    pop cx
+        mov ax, [si+6]
+        cmp ax, 0
+        je collide_bricks_continue
+
+        push [si+2]
+        push [si+0]
+        call collision_field
+        cmp al, 1
+        je top_buttom_collide
+        cmp al, 2
+        je left_right_collide
+        cmp al, 0
+        je collide_bricks_continue
+        
+        top_buttom_collide:
+            neg [ballspeedy]
+            mov ax, 0
+            mov [si+6], ax
+            jmp collide_bricks_continue
+        left_right_collide:
+            neg [ballspeedx]
+            mov ax, 0
+            mov [si+6], ax
+
+        collide_bricks_continue:
+        add si, 8
+        jmp collide_bricks_loop
+
+    collide_bricks_end:
+    pop si
     pop ax
     ret
 endp
@@ -310,8 +391,11 @@ start:
             cmp [bally], 197
             jge exit
 
-
     gameloop_draw:
+        mov ax, offset bricks_array
+        call collide_bricks
+        call draw_bricks
+
         push [GREEN] ;; Draw a new ball
         push 3
         push 3
@@ -330,9 +414,6 @@ start:
         push [racketx]
         call draw_rect 
         
-        mov ax, offset bricks_array
-        call draw_bricks
-
         jmp gameloop
 
 exit:
