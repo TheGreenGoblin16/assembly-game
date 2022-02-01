@@ -5,24 +5,88 @@ STACK 256
 DATASEG
 WHITE dw 0Fh
 BLACK dw 00h
-GREEN dw 30h
+GREEN dw 48h
 BRICK_WIDTH dw 45
 BRICK_HEIGHT dw 20
-BRICK_WIDTH_PLUS dw 47
-BRICK_HEIGHT_PLUS dw 22
+BRICK_WIDTH_PLUS dw 49
+BRICK_HEIGHT_PLUS dw 24
 
 prev_time db 0
 racketx dw 40
 rackety dw 191
-ballx dw 91
-bally dw 101
+ballx dw 61 
+bally dw 141
 ballspeedx dw 2
 ballspeedy dw 2
 
-; 28h = red. 2Ah = orange. 2Ch = yellow. 2Fh = green. 34h = cyan.
-bricks_array dw 5,5,28h,1, 55,5,28h,1, 105,5,28h,1, 155,5,28h,1, 205,5,28h,1, 255,5,28h,1, 5,30,2Ah,1, 55,30,2Ah,1, 105,30,2Ah,1, 155,30,2Ah,1, 205,30,2Ah,1, 255,30,2Ah,1, 0
+; 28h = red. 2Ah = orange. 2Ch = yellow. 2Fh = lime. 34h = cyan.
+bricks_array dw 11,6,28h,1, 61,6,28h,1, 111,6,28h,1, 161,6,28h,1, 211,6,28h,1, 261,6,28h,1, 11,32,2Ah,1, 61,32,2Ah,1, 111,32,2Ah,1, 161,32,2Ah,1, 211,32,2Ah,1, 261,32,2Ah,1, 11,58,2Ch,1, 61,58,2Ch,1, 111,58,2Ch,1, 161,58,2Ch,1, 211,58,2Ch,1, 261,58,2Ch,1, 11,84,2Fh,1, 61,84,2Fh,1, 111,84,2Fh,1, 161,84,2Fh,1, 211,84,2Fh,1, 261,84,2Fh,1, 11,110,34h,1, 61,110,34h,1, 111,110,34h,1, 161,110,34h,1, 211,110,34h,1, 261,110,34h,1, 0
 
 CODESEG
+
+proc mov_signed ; variable, number
+    push bp
+    mov bp, sp
+    push ax
+    push dx
+    push si
+    
+    mov dx, 0
+    mov si, [bp+4]
+    mov ax, [bp+6]
+
+    cmp [si], dx
+    jl mov_signed_minus
+    jmp mov_signed_exit
+    mov_signed_minus:
+        neg ax
+
+    mov_signed_exit:
+    mov [si], ax
+    pop si
+    pop dx
+    pop ax
+    pop bp
+    ret 4
+endp
+
+proc fix_parity ; variable
+    push bp
+    mov bp, sp
+    push ax
+    push dx
+    push si
+
+    mov dx, 1
+    mov si, [bp+4]
+
+    mov ax, [si]   
+    and ax, dx
+    cmp ax, 0
+    je fix_parity_fix
+    jmp fix_parity_end
+
+    fix_parity_fix:
+        mov ax, [si]
+        dec ax
+        mov [si], ax
+    
+    fix_parity_end:
+    pop si
+    pop dx
+    pop ax
+    pop bp
+    ret 2
+endp
+
+proc revert_ballspeedx 
+    push 2
+    push offset ballspeedx
+    call mov_signed
+    push offset ballx
+    call fix_parity
+    ret
+endp
 
 proc graphic_mode
     push ax
@@ -88,10 +152,10 @@ proc draw_rect ; x, y, width, height, color
     mov dh, [bp+10] ;height
     
     xor cx, cx
-    row:
+    rect_row:
         mov ax, [bp+4]
         mov cl, 0
-        pixel:
+        rect_pixel:
             push [bp+12]
             push bx
             push ax
@@ -99,11 +163,11 @@ proc draw_rect ; x, y, width, height, color
             inc ax
             inc cl
             cmp cl, dl
-            jle pixel
+            jle rect_pixel
         inc bx
         inc ch
         cmp ch, dh
-        jle row
+        jle rect_row
 
     pop dx
     pop cx
@@ -143,13 +207,10 @@ endp
 
 proc debug_char
     push ax
-    push dx
 
     mov ah, 02h
-    mov dl, "1"
     int 21h
 
-    pop dx
     pop ax
     ret
 endp
@@ -203,12 +264,12 @@ proc collision_field ; x, y   ; ax... 0=none, 1=top/buttom, 2=left/right
         sub dx, 2
         cmp dx, [bally]
         jne buttom_collision
-        dec cx
+        sub cx, 2
         mov dx, [ballx]
         sub dx, cx
         cmp dx, [BRICK_WIDTH_PLUS]
         ja buttom_collision
-        mov al, 1
+        add al, 1
         jmp collision_field_end
     buttom_collision:
         mov cx, [bp+4]
@@ -217,12 +278,12 @@ proc collision_field ; x, y   ; ax... 0=none, 1=top/buttom, 2=left/right
         inc dx
         cmp dx, [bally]
         jne left_collision
-        dec cx
+        sub cx, 2
         mov dx, [ballx]
         sub dx, cx
         cmp dx, [BRICK_WIDTH_PLUS]
         ja left_collision
-        mov al, 1
+        add al, 1
         jmp collision_field_end
     left_collision:
         mov cx, [bp+4]
@@ -230,12 +291,12 @@ proc collision_field ; x, y   ; ax... 0=none, 1=top/buttom, 2=left/right
         sub cx, 2
         cmp cx, [ballx]
         jne right_collision
-        dec dx
+        sub dx, 2
         mov cx, [bally]
         sub cx, dx
         cmp cx, [BRICK_HEIGHT_PLUS]
         ja right_collision
-        mov al, 2
+        add al, 2
         jmp collision_field_end
     right_collision:
         mov cx, [bp+4]
@@ -244,12 +305,12 @@ proc collision_field ; x, y   ; ax... 0=none, 1=top/buttom, 2=left/right
         inc cx
         cmp cx, [ballx]
         jne collision_field_end
-        dec dx
+        sub dx, 2
         mov cx, [bally]
         sub cx, dx
         cmp cx, [BRICK_HEIGHT_PLUS]
         ja collision_field_end
-        mov al, 2
+        add al, 2
 
     collision_field_end:
     pop dx
@@ -281,6 +342,8 @@ proc collide_bricks ; ax = bricks array offset
         je top_buttom_collide
         cmp al, 2
         je left_right_collide
+        cmp al, 3
+        je corner_collide
         cmp al, 0
         je collide_bricks_continue
         
@@ -288,11 +351,21 @@ proc collide_bricks ; ax = bricks array offset
             neg [ballspeedy]
             mov ax, 0
             mov [si+6], ax
+            call revert_ballspeedx
             jmp collide_bricks_continue
         left_right_collide:
             neg [ballspeedx]
             mov ax, 0
             mov [si+6], ax
+            call revert_ballspeedx
+            jmp collide_bricks_continue
+        corner_collide:
+            neg [ballspeedx]
+            neg [ballspeedy]
+            mov ax, 0
+            mov [si+6], ax
+            call revert_ballspeedx
+            jmp collide_bricks_continue
 
         collide_bricks_continue:
         add si, 8
@@ -383,13 +456,30 @@ start:
         racket_boundry:
             mov ax, [ballx]
             sub ax, [racketx]
+            cmp [bally], 191
+            jge racket_boundry_through
+            cmp ax, 18
+            jbe racket_boundry_edges
+            cmp ax, 32
+            jbe racket_boundry_center
             cmp ax, 50
-            ja racket_boundry_through
+            jbe racket_boundry_edges
+            jmp gameloop_draw
+        racket_boundry_edges:
             neg [ballspeedy]
+            push 1
+            push offset ballspeedx
+            call mov_signed
+            jmp gameloop_draw
+        racket_boundry_center:
+            neg [ballspeedy]
+            call revert_ballspeedx
             jmp gameloop_draw
         racket_boundry_through:
             cmp [bally], 197
             jge exit
+            jmp gameloop_draw
+            
 
     gameloop_draw:
         mov ax, offset bricks_array
