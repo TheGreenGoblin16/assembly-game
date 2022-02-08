@@ -6,6 +6,13 @@ DATASEG
 WHITE dw 0Fh
 BLACK dw 00h
 GREEN dw 48h
+PINK dw 0Dh
+
+NOTE_F3 dw 6833
+NOTE_G3 dw 6087
+NOTE_C4 dw 4560
+NOTE_A4 dw 2416
+
 BRICK_WIDTH dw 45
 BRICK_HEIGHT dw 20
 BRICK_WIDTH_PLUS dw 49
@@ -14,15 +21,24 @@ BRICK_HEIGHT_PLUS dw 24
 prev_time db 0
 racketx dw 40
 rackety dw 191
-ballx dw 61 
+ballx dw 61
 bally dw 141
 ballspeedx dw 2
 ballspeedy dw 2
+pillx dw 0
+pilly dw 0
+pill_flag db 0
+pill_velocity db 3 ; higher is slower actually
+pill_counter db 0
 
 ; 28h = red. 2Ah = orange. 2Ch = yellow. 2Fh = lime. 34h = cyan.
 bricks_array dw 11,6,28h,1, 61,6,28h,1, 111,6,28h,1, 161,6,28h,1, 211,6,28h,1, 261,6,28h,1, 11,32,2Ah,1, 61,32,2Ah,1, 111,32,2Ah,1, 161,32,2Ah,1, 211,32,2Ah,1, 261,32,2Ah,1, 11,58,2Ch,1, 61,58,2Ch,1, 111,58,2Ch,1, 161,58,2Ch,1, 211,58,2Ch,1, 261,58,2Ch,1, 11,84,2Fh,1, 61,84,2Fh,1, 111,84,2Fh,1, 161,84,2Fh,1, 211,84,2Fh,1, 261,84,2Fh,1, 11,110,34h,1, 61,110,34h,1, 111,110,34h,1, 161,110,34h,1, 211,110,34h,1, 261,110,34h,1, 0
 
 CODESEG
+
+proc exit_proc
+    jmp exit
+endp
 
 proc mov_signed ; variable, number
     push bp
@@ -193,6 +209,39 @@ proc wait_tenth
     ret
 endp
 
+proc play_bit
+    push bp
+    mov bp, sp
+    push ax
+
+    in al, 61h ; Open speaker
+    or al, 00000011b
+    out 61h, al
+    
+    mov al, 0B6h ; Send control word to change frequency
+    out 43h, al
+
+    mov ax, [bp+4] ; Play frequency 131Hz
+    out 42h, al ; Sending lower byte
+    mov al, ah
+    out 42h, al ; Sending upper byte
+
+    pop bp
+    pop ax
+    ret 2
+endp
+
+proc stop_bit
+    push ax
+
+    in al, 61h
+    and al, 11111100b
+    out 61h, al
+
+    pop ax
+    endp
+endp
+
 proc key_pressed ; returns zf=0 if key pressed
     mov ah, 01h
     int 16h
@@ -207,10 +256,13 @@ endp
 
 proc debug_char
     push ax
+    push dx
 
     mov ah, 02h
+    mov dl, "a"
     int 21h
 
+    pop dx
     pop ax
     ret
 endp
@@ -250,7 +302,7 @@ proc draw_bricks ; ax = bricks array offset, brick[8]=x[2]y[2]color[2]present[2]
 endp
 
 ;; check if ball is in collision with a brick given as params
-proc collision_field ; x, y   ; ax... 0=none, 1=top/buttom, 2=left/right
+proc collision_field ; x, y   ; ax... 0=none, 1=top/buttom, 2=left/right, 3=corners
     push bp
     mov bp, sp
     push bx
@@ -339,32 +391,32 @@ proc collide_bricks ; ax = bricks array offset
         push [si+0]
         call collision_field
         cmp al, 1
-        je top_buttom_collide
+        je collide_bricks_top_buttom
         cmp al, 2
-        je left_right_collide
+        je collide_bricks_left_right
         cmp al, 3
-        je corner_collide
+        je collide_bricks_corner
         cmp al, 0
         je collide_bricks_continue
         
-        top_buttom_collide:
+        collide_bricks_top_buttom:
             neg [ballspeedy]
-            mov ax, 0
-            mov [si+6], ax
-            call revert_ballspeedx
-            jmp collide_bricks_continue
-        left_right_collide:
+            jmp collide_bricks_destroy
+        collide_bricks_left_right:
             neg [ballspeedx]
-            mov ax, 0
-            mov [si+6], ax
-            call revert_ballspeedx
-            jmp collide_bricks_continue
-        corner_collide:
+            jmp collide_bricks_destroy
+        collide_bricks_corner:
             neg [ballspeedx]
             neg [ballspeedy]
+            jmp collide_bricks_destroy
+
+        collide_bricks_destroy:
             mov ax, 0
             mov [si+6], ax
             call revert_ballspeedx
+            push [NOTE_C4]
+            call play_bit
+            call spawn_pill
             jmp collide_bricks_continue
 
         collide_bricks_continue:
@@ -373,6 +425,121 @@ proc collide_bricks ; ax = bricks array offset
 
     collide_bricks_end:
     pop si
+    pop ax
+    ret
+endp
+
+proc draw_pill
+    push ax
+    
+    mov ax, 0
+    add ax, [pillx]
+    add ax, [pilly]
+    cmp ax, 0
+    je draw_pill_black
+    push [PINK]
+    jmp draw_pill_continue
+
+    draw_pill_black:
+    push [BLACK]
+
+    draw_pill_continue:
+    push [pilly]
+    push [pillx]
+    call paint_pixel
+
+    pop ax
+    ret
+endp
+
+proc spawn_pill ; works exclusively in collide_bricks
+    push ax
+    
+    mov ax, 0
+    add ax, [pillx]
+    add ax, [pilly]
+    cmp ax, 0
+    jne spawn_pill_exit
+    mov al, [prev_time]
+    and al, 00001111b
+    cmp al, 2
+    jg spawn_pill_exit
+    mov ax, [si+0]
+    add ax, 22
+    mov [pillx], ax
+    mov ax, [si+2]
+    mov [pilly], ax
+
+    spawn_pill_exit:
+    pop ax
+    ret
+endp
+
+proc accelerate_pill
+    push ax
+
+    mov al, 3
+
+    cmp [pill_counter], 3
+    jbe accelerate_pill_exit
+    dec ax
+    cmp [pill_counter], 15
+    jbe accelerate_pill_exit
+    dec ax
+    cmp [pill_counter], 40
+    jbe accelerate_pill_exit
+    dec ax
+
+    accelerate_pill_exit:
+    mov [pill_velocity], al
+    pop ax
+    ret
+endp
+
+proc move_pill
+    push ax
+
+    mov ax, 0
+    add ax, [pillx]
+    add ax, [pilly]
+    cmp ax, 0
+    je move_pill_exit
+
+    call accelerate_pill
+    mov al, [pill_velocity]
+    cmp [pill_flag], al
+    je move_pill_full
+    jmp move_pill_less
+    
+    move_pill_less:
+        inc [pill_flag]
+        jmp move_pill_exit
+    move_pill_full:
+        mov [pill_flag], 0
+        inc [pilly]
+        inc [pill_counter]
+
+    cmp [pilly], 191
+    jl move_pill_exit
+    mov ax, [pillx]
+    sub ax, [racketx]
+    cmp ax, 50
+    jbe move_pill_on
+    jmp move_pill_through
+
+    move_pill_on:
+        mov [pillx], 0
+        mov [pilly], 0
+        mov [pill_counter], 0
+        push [NOTE_A4]
+        call play_bit
+        jmp move_pill_exit
+    move_pill_through:
+        cmp [pilly], 198
+        jl move_pill_exit
+        call exit_proc
+
+    move_pill_exit:
     pop ax
     ret
 endp
@@ -390,6 +557,7 @@ start:
         cmp dl, [prev_time]
         je gameloop
         mov [prev_time], dl
+        call stop_bit
         
         push [BLACK] ;; Clear the old ball
         push 3
@@ -401,6 +569,11 @@ start:
         dec ax
         push ax ;x
         call draw_rect
+
+        push [BLACK] ;; Clear the old pill
+        push [pilly]
+        push [pillx]
+        call paint_pixel
 
         call key_pressed ;; If no key was pressed, skip input stage
         jz gameloop_calc
@@ -458,9 +631,9 @@ start:
             sub ax, [racketx]
             cmp [bally], 191
             jge racket_boundry_through
-            cmp ax, 18
+            cmp ax, 15
             jbe racket_boundry_edges
-            cmp ax, 32
+            cmp ax, 35
             jbe racket_boundry_center
             cmp ax, 50
             jbe racket_boundry_edges
@@ -470,21 +643,27 @@ start:
             push 1
             push offset ballspeedx
             call mov_signed
+            push [NOTE_G3]
+            call play_bit
             jmp gameloop_draw
         racket_boundry_center:
             neg [ballspeedy]
             call revert_ballspeedx
+            push [NOTE_F3]
+            call play_bit
             jmp gameloop_draw
         racket_boundry_through:
             cmp [bally], 197
             jge exit
             jmp gameloop_draw
-            
+
 
     gameloop_draw:
         mov ax, offset bricks_array
         call collide_bricks
         call draw_bricks
+
+        call move_pill
 
         push [GREEN] ;; Draw a new ball
         push 3
@@ -502,11 +681,14 @@ start:
         push 50
         push [rackety]
         push [racketx]
-        call draw_rect 
+        call draw_rect
+
+        call draw_pill
         
         jmp gameloop
 
 exit:
+    call stop_bit
     mov ah, 4Ch
     int 21h
 END start
