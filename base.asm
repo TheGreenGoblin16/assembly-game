@@ -18,17 +18,21 @@ BRICK_HEIGHT dw 20
 BRICK_WIDTH_PLUS dw 49
 BRICK_HEIGHT_PLUS dw 24
 
-prev_time db 0
+prev_time dw 0
+Clock equ es:046Ch
+total_bricks db 0
+
 racketx dw 40
 rackety dw 191
 racketspeed dw 4
+
 ballx dw 61
 bally dw 141
 ballspeedx dw 2
 ballspeedy dw 2
+
 pillx dw 0
 pilly dw 0
-
 pill_flag db 0
 pill_velocity db 3 ; higher is slower actually
 pill_counter db 0
@@ -63,6 +67,8 @@ proc win_screen
     mov ah, 00h
     int 16h
 
+    call wait_tenth
+
     ret
 endp
 
@@ -74,6 +80,8 @@ proc lose_screen
 
     mov ah, 00h
     int 16h
+
+    call wait_tenth
 
     ret
 endp
@@ -247,7 +255,7 @@ proc wait_tenth
     ret
 endp
 
-proc play_bit
+proc play_beep
     push bp
     mov bp, sp
     push ax
@@ -269,7 +277,7 @@ proc play_bit
     ret 2
 endp
 
-proc stop_bit
+proc stop_beep
     push ax
 
     in al, 61h
@@ -451,8 +459,9 @@ proc collide_bricks ; ax = bricks array offset
             mov [si+6], ax
             call revert_ballspeedx
             push [NOTE_C4]
-            call play_bit
+            call play_beep
             call spawn_pill
+            inc [total_bricks]
             jmp collide_bricks_continue
 
         collide_bricks_continue:
@@ -462,35 +471,6 @@ proc collide_bricks ; ax = bricks array offset
     collide_bricks_end:
     pop si
     pop ax
-    ret
-endp
-
-proc check_bricks
-    push bx
-    push si
-
-    mov bx, 0
-    mov si, ax
-    check_bricks_loop:
-        mov ax, [si]
-        cmp ax, 00h
-        je check_bricks_end
-
-        mov ax, [si+6]
-        cmp ax, 0
-        je check_bricks_continue
-        inc bx
-        jmp check_bricks_continue
-        
-        check_bricks_continue:
-        add si, 8
-        jmp check_bricks_loop
-
-    check_bricks_end:
-    mov ax, bx
-
-    pop si
-    pop bx
     ret
 endp
 
@@ -567,7 +547,7 @@ proc spawn_pill ; works exclusively in collide_bricks
     add ax, [pilly]
     cmp ax, 0
     jne spawn_pill_exit
-    mov al, [prev_time]
+    mov ax, [prev_time]
     and al, 00001111b
     cmp al, 2
     jg spawn_pill_exit
@@ -639,7 +619,7 @@ proc move_pill
         mov [pilly], 0
         mov [pill_counter], 0
         push [NOTE_A4]
-        call play_bit
+        call play_beep
         jmp move_pill_exit
     move_pill_through:
         cmp [pilly], 197
@@ -647,7 +627,7 @@ proc move_pill
         mov [pillx], 0
         mov [pilly], 0
         mov [pill_counter], 0
-        mov [racketspeed], 2
+        dec [racketspeed]
         jmp move_pill_exit
 
     move_pill_exit:
@@ -665,12 +645,12 @@ start:
     call set_background
     
     gameloop:
-        mov ah, 2Ch ;; Loop system: checks every iteration if time has passed
-        int 21h ; ch=hour cl=minute dh=second dl=1/100 second
-        cmp dl, [prev_time]
+        mov ah, 00h 
+        int 1Ah
+        cmp dx, [prev_time]
         je gameloop
-        mov [prev_time], dl
-        call stop_bit
+        mov [prev_time], dx
+        call stop_beep
         
         call clear_ball
 
@@ -738,7 +718,6 @@ start:
             sub ax, [racketx]
             cmp [bally], 191
             jge racket_boundry_through
-            mov [racketspeed], 4
             cmp ax, 15
             jbe racket_boundry_edges
             cmp ax, 35
@@ -752,13 +731,13 @@ start:
             push offset ballspeedx
             call mov_signed
             push [NOTE_G3]
-            call play_bit
+            call play_beep
             jmp gameloop_draw
         racket_boundry_center:
             neg [ballspeedy]
             call revert_ballspeedx
             push [NOTE_F3]
-            call play_bit
+            call play_beep
             jmp gameloop_draw
         racket_boundry_through:
             cmp [bally], 197
@@ -770,10 +749,9 @@ start:
         mov ax, offset bricks_array
         call collide_bricks
         call draw_bricks
-        call check_bricks
         
-        cmp ax, 0
-        je win_exit
+        cmp [total_bricks], 30
+        jge win_exit
 
         call move_pill
 
@@ -809,7 +787,7 @@ lose_exit:
     call lose_screen
 
 exit:
-    call stop_bit
+    call stop_beep
     mov ah, 4Ch
     int 21h
 END start
