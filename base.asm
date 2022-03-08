@@ -6,8 +6,10 @@ DATASEG
 WHITE dw 0Fh
 BLACK dw 00h
 GREEN dw 48h
-PINK dw 0Dh
 
+; Value = 1193180 / frequency
+NOTE_C2 dw 18242
+NOTE_A2 dw 10847
 NOTE_F3 dw 6833
 NOTE_G3 dw 6087
 NOTE_C4 dw 4560
@@ -18,8 +20,7 @@ BRICK_HEIGHT dw 20
 BRICK_WIDTH_PLUS dw 49
 BRICK_HEIGHT_PLUS dw 24
 
-prev_time dw 0
-Clock equ es:046Ch
+prev_time db 0
 total_bricks db 0
 
 racketx dw 40
@@ -31,16 +32,31 @@ bally dw 141
 ballspeedx dw 2
 ballspeedy dw 2
 
-pillx dw 0
-pilly dw 0
-pill_flag db 0
-pill_velocity db 3 ; higher is slower actually
-pill_counter db 0
+pill1_x dw 0 ; decreasing racketspeed
+pill1_y dw 0
+pill1_color dw 65h ; blue
+pill1_flag db 0
+pill1_velocity db 3 ; higher is slower actually
+pill1_counter db 0
+
+pill2_x dw 0 ; increasing racketspeed
+pill2_y dw 0
+pill2_color dw 43h ; orange
+pill2_flag db 0
+pill2_velocity db 3
+pill2_counter db 0
+
+pill3_x dw 0 ; teleporting racket
+pill3_y dw 0
+pill3_color dw 54h ; pink 
+pill3_flag db 0
+pill3_velocity db 3
+pill3_counter db 0
 
 ; 28h = red. 2Ah = orange. 2Ch = yellow. 2Fh = lime. 34h = cyan.
 bricks_array dw 11,6,28h,1, 61,6,28h,1, 111,6,28h,1, 161,6,28h,1, 211,6,28h,1, 261,6,28h,1, 11,32,2Ah,1, 61,32,2Ah,1, 111,32,2Ah,1, 161,32,2Ah,1, 211,32,2Ah,1, 261,32,2Ah,1, 11,58,2Ch,1, 61,58,2Ch,1, 111,58,2Ch,1, 161,58,2Ch,1, 211,58,2Ch,1, 261,58,2Ch,1, 11,84,2Fh,1, 61,84,2Fh,1, 111,84,2Fh,1, 161,84,2Fh,1, 211,84,2Fh,1, 261,84,2Fh,1, 11,110,34h,1, 61,110,34h,1, 111,110,34h,1, 161,110,34h,1, 211,110,34h,1, 261,110,34h,1, 0
 
-starting_screen_text db "[ Welcome to Breakout 1999! ]", 10,10, "Your goal is to move the racket (white  rectangle), hit the ball with it, and   destroy the bricks. If you let the ball touch the bottom, you'll lose the game!", 10, "There are also sometimes pink pills     falling from bricks, I will let you     discover what they do (;", 10,10, "Controls:", 10, "a,d - move the racket", 10, "shift+Q - force quit", 10,10, "- Press a key to start the game -$"
+starting_screen_text db "[ Welcome to Breakout 1999! ]", 10,10, "Your goal is to move the racket (white  rectangle), hit the ball with it, and   destroy the bricks. If you let the ball touch the bottom, you'll lose the game!", 10, "There are also sometimes colorful pills falling from bricks, I will let you     discover what they do (;", 10,10, "Controls:", 10, "a,d - move the racket", 10, "shift+Q - force quit", 10,10, "- Press a key to start the game -$"
 win_screen_text db "[ You won! ]", 10,10, "You managed to destroy all the bricks!  Good job! Now get some life and play   outside...", 10,10, "- Press a key to exit -$"
 lose_screen_text db "[ You lost! ]", 10,10, "You didn't hit the ball in time... Oh   no... Now you'll have to do it all over again!", 10,10, "- Press a key to exit -$"
 
@@ -460,7 +476,9 @@ proc collide_bricks ; ax = bricks array offset
             call revert_ballspeedx
             push [NOTE_C4]
             call play_beep
-            call spawn_pill
+            call spawn_pill1
+            call spawn_pill2
+            call spawn_pill3
             inc [total_bricks]
             jmp collide_bricks_continue
 
@@ -473,6 +491,454 @@ proc collide_bricks ; ax = bricks array offset
     pop ax
     ret
 endp
+
+; PILLS PROCEDURES START HERE
+
+proc draw_pill1
+    push ax
+    
+    mov ax, 0
+    add ax, [pill1_x]
+    add ax, [pill1_y]
+    cmp ax, 0
+    je draw_pill1_exit
+
+    push [pill1_color]
+    push 3
+    push 3
+    mov ax, [pill1_y]
+    dec ax
+    push ax
+    mov ax, [pill1_x]
+    dec ax
+    push ax
+    call draw_rect
+
+    draw_pill1_exit:
+    pop ax
+    ret
+endp
+
+proc clear_pill1
+    push ax
+
+    push [BLACK]
+    push 3
+    push 3
+    mov ax, [pill1_y]
+    dec ax
+    push ax
+    mov ax, [pill1_x]
+    dec ax
+    push ax
+    call draw_rect
+
+    pop ax
+    ret
+endp
+
+proc spawn_pill1 ; works exclusively in collide_bricks
+    push ax
+    
+    mov ax, 0
+    add ax, [pill1_x]
+    add ax, [pill1_y]
+    cmp ax, 0
+    jne spawn_pill1_exit
+    mov al, [prev_time]
+    and al, 00001111b
+    cmp al, 2
+    jg spawn_pill1_exit
+    mov ax, [si+0]
+    add ax, 22
+    mov [pill1_x], ax
+    mov ax, [si+2]
+    mov [pill1_y], ax
+
+    spawn_pill1_exit:
+    pop ax
+    ret
+endp
+
+proc accelerate_pill1
+    push ax
+
+    mov al, 3
+
+    cmp [pill1_counter], 5
+    jbe accelerate_pill1_exit
+    dec ax
+    cmp [pill1_counter], 18
+    jbe accelerate_pill1_exit
+    dec ax
+    cmp [pill1_counter], 40
+    jbe accelerate_pill1_exit
+    dec ax
+
+    accelerate_pill1_exit:
+    mov [pill1_velocity], al
+    pop ax
+    ret
+endp
+
+proc move_pill1
+    push ax
+
+    mov ax, 0
+    add ax, [pill1_x]
+    add ax, [pill1_y]
+    cmp ax, 0
+    je move_pill1_exit
+
+    call accelerate_pill1
+    mov al, [pill1_velocity]
+    cmp [pill1_flag], al
+    je move_pill1_full
+    jmp move_pill1_less
+    
+    move_pill1_less:
+        inc [pill1_flag]
+        jmp move_pill1_exit
+    move_pill1_full:
+        mov [pill1_flag], 0
+        inc [pill1_y]
+        inc [pill1_counter]
+
+    cmp [pill1_y], 189
+    jl move_pill1_exit
+    mov ax, [pill1_x]
+    sub ax, [racketx]
+    cmp ax, 50
+    jbe move_pill1_within
+    jmp move_pill1_through
+
+    move_pill1_within:
+        mov [pill1_x], 0
+        mov [pill1_y], 0
+        mov [pill1_counter], 0
+        push [NOTE_A4]
+        call play_beep
+        jmp move_pill1_exit
+    move_pill1_through:
+        cmp [pill1_y], 197
+        jl move_pill1_exit
+        dec [racketspeed]
+        mov [pill1_x], 0
+        mov [pill1_y], 0
+        mov [pill1_counter], 0
+        push [NOTE_A2]
+        call play_beep
+        jmp move_pill1_exit
+
+    move_pill1_exit:
+    pop ax
+    ret
+endp
+
+
+
+proc draw_pill2
+    push ax
+    
+    mov ax, 0
+    add ax, [pill2_x]
+    add ax, [pill2_y]
+    cmp ax, 0
+    je draw_pill2_exit
+
+    push [pill2_color]
+    push 3
+    push 3
+    mov ax, [pill2_y]
+    dec ax
+    push ax
+    mov ax, [pill2_x]
+    dec ax
+    push ax
+    call draw_rect
+
+    draw_pill2_exit:
+    pop ax
+    ret
+endp
+
+proc clear_pill2
+    push ax
+
+    push [BLACK]
+    push 3
+    push 3
+    mov ax, [pill2_y]
+    dec ax
+    push ax
+    mov ax, [pill2_x]
+    dec ax
+    push ax
+    call draw_rect
+
+    pop ax
+    ret
+endp
+
+proc spawn_pill2 ; works exclusively in collide_bricks
+    push ax
+    
+    mov ax, 0
+    add ax, [pill2_x]
+    add ax, [pill2_y]
+    cmp ax, 0
+    jne spawn_pill2_exit
+    mov al, [prev_time]
+    and al, 00001111b
+    cmp al, 3
+    jl spawn_pill2_exit
+    cmp al, 5
+    jg spawn_pill2_exit
+    mov ax, [si+0]
+    add ax, 22
+    mov [pill2_x], ax
+    mov ax, [si+2]
+    mov [pill2_y], ax
+
+    spawn_pill2_exit:
+    pop ax
+    ret
+endp
+
+proc accelerate_pill2
+    push ax
+
+    mov al, 3
+
+    cmp [pill2_counter], 5
+    jbe accelerate_pill2_exit
+    dec ax
+    cmp [pill2_counter], 18
+    jbe accelerate_pill2_exit
+    dec ax
+    cmp [pill2_counter], 40
+    jbe accelerate_pill2_exit
+    dec ax
+
+    accelerate_pill2_exit:
+    mov [pill2_velocity], al
+    pop ax
+    ret
+endp
+
+proc move_pill2
+    push ax
+
+    mov ax, 0
+    add ax, [pill2_x]
+    add ax, [pill2_y]
+    cmp ax, 0
+    je move_pill2_exit
+
+    call accelerate_pill2
+    mov al, [pill2_velocity]
+    cmp [pill2_flag], al
+    je move_pill2_full
+    jmp move_pill2_less
+    
+    move_pill2_less:
+        inc [pill2_flag]
+        jmp move_pill2_exit
+    move_pill2_full:
+        mov [pill2_flag], 0
+        inc [pill2_y]
+        inc [pill2_counter]
+
+    cmp [pill2_y], 189
+    jl move_pill2_exit
+    mov ax, [pill2_x]
+    sub ax, [racketx]
+    cmp ax, 50
+    jbe move_pill2_within
+    jmp move_pill2_through
+
+    move_pill2_within:
+        inc [racketspeed]
+        mov [pill2_x], 0
+        mov [pill2_y], 0
+        mov [pill2_counter], 0
+        push [NOTE_A4]
+        call play_beep
+        jmp move_pill2_exit
+    move_pill2_through:
+        cmp [pill2_y], 197
+        jl move_pill2_exit
+        mov [pill2_x], 0
+        mov [pill2_y], 0
+        mov [pill2_counter], 0
+        push [NOTE_A2]
+        call play_beep
+        jmp move_pill2_exit
+
+    move_pill2_exit:
+    pop ax
+    ret
+endp
+
+
+
+proc draw_pill3
+    push ax
+    
+    mov ax, 0
+    add ax, [pill3_x]
+    add ax, [pill3_y]
+    cmp ax, 0
+    je draw_pill3_exit
+
+    push [pill3_color]
+    push 3
+    push 3
+    mov ax, [pill3_y]
+    dec ax
+    push ax
+    mov ax, [pill3_x]
+    dec ax
+    push ax
+    call draw_rect
+
+    draw_pill3_exit:
+    pop ax
+    ret
+endp
+
+proc clear_pill3
+    push ax
+
+    push [BLACK]
+    push 3
+    push 3
+    mov ax, [pill3_y]
+    dec ax
+    push ax
+    mov ax, [pill3_x]
+    dec ax
+    push ax
+    call draw_rect
+
+    pop ax
+    ret
+endp
+
+proc spawn_pill3 ; works exclusively in collide_bricks
+    push ax
+    
+    mov ax, 0
+    add ax, [pill3_x]
+    add ax, [pill3_y]
+    cmp ax, 0
+    jne spawn_pill3_exit
+    mov al, [prev_time]
+    and al, 00001111b
+    cmp al, 6
+    jl spawn_pill3_exit
+    cmp al, 7
+    jg spawn_pill3_exit
+    mov ax, [si+0]
+    add ax, 22
+    mov [pill3_x], ax
+    mov ax, [si+2]
+    mov [pill3_y], ax
+
+    spawn_pill3_exit:
+    pop ax
+    ret
+endp
+
+proc accelerate_pill3
+    push ax
+
+    mov al, 3
+
+    cmp [pill3_counter], 5
+    jbe accelerate_pill3_exit
+    dec ax
+    cmp [pill3_counter], 18
+    jbe accelerate_pill3_exit
+    dec ax
+    cmp [pill3_counter], 40
+    jbe accelerate_pill3_exit
+    dec ax
+
+    accelerate_pill3_exit:
+    mov [pill3_velocity], al
+    pop ax
+    ret
+endp
+
+proc pill3_effect
+    push ax
+    push bx
+
+    call clear_racket
+    mov ax, [pill3_x]
+    sub ax, 25
+    mov [racketx], ax
+
+    pop bx
+    pop ax
+    ret
+endp
+
+proc move_pill3
+    push ax
+
+    mov ax, 0
+    add ax, [pill3_x]
+    add ax, [pill3_y]
+    cmp ax, 0
+    je move_pill3_exit
+
+    call accelerate_pill3
+    mov al, [pill3_velocity]
+    cmp [pill3_flag], al
+    je move_pill3_full
+    jmp move_pill3_less
+    
+    move_pill3_less:
+        inc [pill3_flag]
+        jmp move_pill3_exit
+    move_pill3_full:
+        mov [pill3_flag], 0
+        inc [pill3_y]
+        inc [pill3_counter]
+
+    cmp [pill3_y], 189
+    jl move_pill3_exit
+    mov ax, [pill3_x]
+    sub ax, [racketx]
+    cmp ax, 50
+    jbe move_pill3_within
+    jmp move_pill3_through
+
+    move_pill3_within:
+        mov [pill3_x], 0
+        mov [pill3_y], 0
+        mov [pill3_counter], 0
+        push [NOTE_A4]
+        call play_beep
+        jmp move_pill3_exit
+    move_pill3_through:
+        cmp [pill3_y], 197
+        jl move_pill3_exit
+        call pill3_effect
+        mov [pill3_x], 0
+        mov [pill3_y], 0
+        mov [pill3_counter], 0
+        push [NOTE_A2]
+        call play_beep
+        jmp move_pill3_exit
+
+    move_pill3_exit:
+    pop ax
+    ret
+endp
+
 
 proc clear_ball
     push ax
@@ -492,146 +958,14 @@ proc clear_ball
     ret
 endp
 
-proc draw_pill
-    push ax
-    
-    mov ax, 0
-    add ax, [pillx]
-    add ax, [pilly]
-    cmp ax, 0
-    je draw_pill_black
-    push [PINK]
-    jmp draw_pill_continue
-
-    draw_pill_black:
-    push [BLACK]
-
-    draw_pill_continue:
-    push 3
-    push 3
-    mov ax, [pilly]
-    dec ax
-    push ax
-    mov ax, [pillx]
-    dec ax
-    push ax
+proc clear_racket
+    push [BLACK] ;; Clear the old racket
+    push 10
+    push 52
+    push [rackety]
+    push [racketx]
     call draw_rect
 
-    pop ax
-    ret
-endp
-
-proc clear_pill
-    push ax
-
-    push [BLACK]
-    push 3
-    push 3
-    mov ax, [pilly]
-    dec ax
-    push ax
-    mov ax, [pillx]
-    dec ax
-    push ax
-    call draw_rect
-
-    pop ax
-    ret
-endp
-
-proc spawn_pill ; works exclusively in collide_bricks
-    push ax
-    
-    mov ax, 0
-    add ax, [pillx]
-    add ax, [pilly]
-    cmp ax, 0
-    jne spawn_pill_exit
-    mov ax, [prev_time]
-    and al, 00001111b
-    cmp al, 2
-    jg spawn_pill_exit
-    mov ax, [si+0]
-    add ax, 22
-    mov [pillx], ax
-    mov ax, [si+2]
-    mov [pilly], ax
-
-    spawn_pill_exit:
-    pop ax
-    ret
-endp
-
-proc accelerate_pill
-    push ax
-
-    mov al, 3
-
-    cmp [pill_counter], 5
-    jbe accelerate_pill_exit
-    dec ax
-    cmp [pill_counter], 18
-    jbe accelerate_pill_exit
-    dec ax
-    cmp [pill_counter], 40
-    jbe accelerate_pill_exit
-    dec ax
-
-    accelerate_pill_exit:
-    mov [pill_velocity], al
-    pop ax
-    ret
-endp
-
-proc move_pill
-    push ax
-
-    mov ax, 0
-    add ax, [pillx]
-    add ax, [pilly]
-    cmp ax, 0
-    je move_pill_exit
-
-    call accelerate_pill
-    mov al, [pill_velocity]
-    cmp [pill_flag], al
-    je move_pill_full
-    jmp move_pill_less
-    
-    move_pill_less:
-        inc [pill_flag]
-        jmp move_pill_exit
-    move_pill_full:
-        mov [pill_flag], 0
-        inc [pilly]
-        inc [pill_counter]
-
-    cmp [pilly], 189
-    jl move_pill_exit
-    mov ax, [pillx]
-    sub ax, [racketx]
-    cmp ax, 50
-    jbe move_pill_on
-    jmp move_pill_through
-
-    move_pill_on:
-        mov [pillx], 0
-        mov [pilly], 0
-        mov [pill_counter], 0
-        push [NOTE_A4]
-        call play_beep
-        jmp move_pill_exit
-    move_pill_through:
-        cmp [pilly], 197
-        jl move_pill_exit
-        mov [pillx], 0
-        mov [pilly], 0
-        mov [pill_counter], 0
-        dec [racketspeed]
-        jmp move_pill_exit
-
-    move_pill_exit:
-    pop ax
     ret
 endp
 
@@ -645,26 +979,23 @@ start:
     call set_background
     
     gameloop:
-        mov ah, 00h 
-        int 1Ah
-        cmp dx, [prev_time]
+        mov ah, 2Ch ;; Loop system: checks every iteration if time has passed
+        int 21h ; ch=hour cl=minute dh=second dl=1/100 second
+        cmp dl, [prev_time]
         je gameloop
-        mov [prev_time], dx
+        mov [prev_time], dl
         call stop_beep
         
         call clear_ball
 
-        call clear_pill
+        call clear_pill1
+        call clear_pill2
+        call clear_pill3
 
         call key_pressed ;; If no key was pressed, skip input stage
         jz gameloop_calc
 
-        push [BLACK] ;; Clear the old racket
-        push 10
-        push 52
-        push [rackety]
-        push [racketx]
-        call draw_rect
+        call clear_racket
 
         call get_key ;; Input: jump to the label of the key pressed
         cmp al, "d"
@@ -753,7 +1084,9 @@ start:
         cmp [total_bricks], 30
         jge win_exit
 
-        call move_pill
+        call move_pill1
+        call move_pill2
+        call move_pill3
 
         push [GREEN] ;; Draw a new ball
         push 3
@@ -773,7 +1106,9 @@ start:
         push [racketx]
         call draw_rect
 
-        call draw_pill
+        call draw_pill1
+        call draw_pill2
+        call draw_pill3
         
         jmp gameloop
 
