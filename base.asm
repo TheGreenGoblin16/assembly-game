@@ -7,7 +7,7 @@ WHITE dw 0Fh
 BLACK dw 00h
 GREEN dw 48h
 
-; Value = 1193180 / frequency
+; divisor = 1193180 / frequency
 NOTE_C2 dw 18242
 NOTE_A2 dw 10847
 NOTE_F3 dw 6833
@@ -27,7 +27,7 @@ racketx dw 40
 rackety dw 191
 racketspeed dw 4
 
-ballx dw 61
+ballx dw 55
 bally dw 141
 ballspeedx dw 2
 ballspeedy dw 2
@@ -35,6 +35,7 @@ ballspeedy dw 2
 pill1_x dw 0 ; decreasing racketspeed
 pill1_y dw 0
 pill1_color dw 65h ; blue
+pill1_chance db 1 ; 0-3
 pill1_flag db 0
 pill1_velocity db 3 ; higher is slower actually
 pill1_counter db 0
@@ -42,6 +43,7 @@ pill1_counter db 0
 pill2_x dw 0 ; increasing racketspeed
 pill2_y dw 0
 pill2_color dw 43h ; orange
+pill2_chance db 6 ; 4-7
 pill2_flag db 0
 pill2_velocity db 3
 pill2_counter db 0
@@ -49,6 +51,7 @@ pill2_counter db 0
 pill3_x dw 0 ; teleporting racket
 pill3_y dw 0
 pill3_color dw 54h ; pink 
+pill3_chance db 9 ; 8-11
 pill3_flag db 0
 pill3_velocity db 3
 pill3_counter db 0
@@ -57,8 +60,11 @@ pill3_counter db 0
 bricks_array dw 11,6,28h,1, 61,6,28h,1, 111,6,28h,1, 161,6,28h,1, 211,6,28h,1, 261,6,28h,1, 11,32,2Ah,1, 61,32,2Ah,1, 111,32,2Ah,1, 161,32,2Ah,1, 211,32,2Ah,1, 261,32,2Ah,1, 11,58,2Ch,1, 61,58,2Ch,1, 111,58,2Ch,1, 161,58,2Ch,1, 211,58,2Ch,1, 261,58,2Ch,1, 11,84,2Fh,1, 61,84,2Fh,1, 111,84,2Fh,1, 161,84,2Fh,1, 211,84,2Fh,1, 261,84,2Fh,1, 11,110,34h,1, 61,110,34h,1, 111,110,34h,1, 161,110,34h,1, 211,110,34h,1, 261,110,34h,1, 0
 
 starting_screen_text db "[ Welcome to Breakout 1999! ]", 10,10, "Your goal is to move the racket (white  rectangle), hit the ball with it, and   destroy the bricks. If you let the ball touch the bottom, you'll lose the game!", 10, "There are also sometimes colorful pills falling from bricks, I will let you     discover what they do (;", 10,10, "Controls:", 10, "a,d - move the racket", 10, "shift+Q - force quit", 10,10, "- Press a key to start the game -$"
-win_screen_text db "[ You won! ]", 10,10, "You managed to destroy all the bricks!  Good job! Now get some life and play   outside...", 10,10, "- Press a key to exit -$"
+win_screen_text db "[ You won! ]", 10,10, "You managed to destroy all the bricks!  Good job! Now get some life and play    outside...", 10,10, "- Press a key to exit -$"
 lose_screen_text db "[ You lost! ]", 10,10, "You didn't hit the ball in time... Oh   no... Now you'll have to do it all over again!", 10,10, "- Press a key to exit -$"
+
+win_melody dw 2711, 2415, 2031, 2711, 1612, 1,1, 1612, 1,1, 1809, 1,1,1,1, 2711, 2415, 2031, 2711, 1809, 1,1, 1809, 1,1, 2031, 1, 2152, 2415, 1,1, 2711, 2415, 2031, 2711, 2031, 1,1,1, 1809, 1, 2152, 1,1,1, 2711, 1,1, 2711, 1,1, 1809, 1,1, 2031, 0
+lose_melody dw 9663, 9121, 8126, 1, 12175, 1, 10847, 1, 13666, 1, 14478, 0
 
 CODESEG
 
@@ -80,6 +86,9 @@ proc win_screen
     mov dx, offset win_screen_text
     int 21h
 
+    mov ax, offset win_melody
+    call play_melody
+
     mov ah, 00h
     int 16h
 
@@ -93,6 +102,9 @@ proc lose_screen
     mov ah, 09h
     mov dx, offset lose_screen_text
     int 21h
+
+    mov ax, offset lose_melody
+    call play_melody
 
     mov ah, 00h
     int 16h
@@ -214,8 +226,6 @@ proc paint_pixel ; x, y, color
     ret 6
 endp
 
-
-
 proc draw_rect ; x, y, width, height, color
     push bp
     mov bp, sp
@@ -255,6 +265,34 @@ proc draw_rect ; x, y, width, height, color
     ret 10
 endp
 
+proc draw_char ; column, row, char
+    push bp
+    mov bp, sp
+    push ax
+    push bx
+    push cx
+    push dx
+
+    mov ah, 02h
+    mov bh, 0
+    mov dh, [bp+4]
+    mov dl, [bp+6]
+    int 10h
+
+    mov ah, 0Eh
+    mov bh, 0
+    mov al, [bp+8]
+    mov bl, 0Fh
+    int 10h
+
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    pop bp
+    ret 6
+endp
+
 proc wait_tenth
     push ax
     push cx
@@ -271,7 +309,7 @@ proc wait_tenth
     ret
 endp
 
-proc play_beep
+proc play_beep ; divisor
     push bp
     mov bp, sp
     push ax
@@ -283,7 +321,7 @@ proc play_beep
     mov al, 0B6h ; Send control word to change frequency
     out 43h, al
 
-    mov ax, [bp+4] ; Play frequency 131Hz
+    mov ax, [bp+4] ; Play divisor
     out 42h, al ; Sending lower byte
     mov al, ah
     out 42h, al ; Sending upper byte
@@ -301,7 +339,36 @@ proc stop_beep
     out 61h, al
 
     pop ax
-    endp
+    ret
+endp
+
+proc play_melody ; ax = notes array offset, divisor[2]
+    push ax
+    push si
+
+    mov si, ax
+    play_melody_loop:
+        mov ax, [si]
+        cmp ax, 0
+        je play_melody_end
+
+        cmp ax, 1
+        je play_melody_continue
+
+        push ax
+        call play_beep
+
+        play_melody_continue:
+        call wait_tenth
+        call stop_beep
+        add si, 2
+        jmp play_melody_loop
+    
+    play_melody_end:
+    call stop_beep
+    pop si
+    pop ax
+    ret
 endp
 
 proc key_pressed ; returns zf=0 if key pressed
@@ -364,7 +431,7 @@ proc draw_bricks ; ax = bricks array offset, brick[8]=x[2]y[2]color[2]present[2]
     ret
 endp
 
-;; check if ball is in collision with a brick given as params
+; check if ball is in collision with a brick given as params
 proc collision_field ; x, y   ; ax... 0=none, 1=top/buttom, 2=left/right, 3=corners
     push bp
     mov bp, sp
@@ -432,7 +499,7 @@ proc collision_field ; x, y   ; ax... 0=none, 1=top/buttom, 2=left/right, 3=corn
     ret 4
 endp
 
-;; check if ball is in collision with any brick
+; check if ball is in collision with any brick
 proc collide_bricks ; ax = bricks array offset
     push ax
     push si
@@ -547,7 +614,7 @@ proc spawn_pill1 ; works exclusively in collide_bricks
     jne spawn_pill1_exit
     mov al, [prev_time]
     and al, 00001111b
-    cmp al, 2
+    cmp al, [pill1_chance]
     jg spawn_pill1_exit
     mov ax, [si+0]
     add ax, 22
@@ -690,9 +757,9 @@ proc spawn_pill2 ; works exclusively in collide_bricks
     jne spawn_pill2_exit
     mov al, [prev_time]
     and al, 00001111b
-    cmp al, 3
+    cmp al, 4
     jl spawn_pill2_exit
-    cmp al, 5
+    cmp al, [pill2_chance]
     jg spawn_pill2_exit
     mov ax, [si+0]
     add ax, 22
@@ -835,9 +902,9 @@ proc spawn_pill3 ; works exclusively in collide_bricks
     jne spawn_pill3_exit
     mov al, [prev_time]
     and al, 00001111b
-    cmp al, 6
+    cmp al, 8
     jl spawn_pill3_exit
-    cmp al, 7
+    cmp al, [pill3_chance]
     jg spawn_pill3_exit
     mov ax, [si+0]
     add ax, 22
@@ -943,7 +1010,7 @@ endp
 proc clear_ball
     push ax
 
-    push [BLACK] ;; Clear the old ball
+    push [BLACK]
     push 3
     push 3
     mov ax, [bally]
@@ -958,14 +1025,62 @@ proc clear_ball
     ret
 endp
 
+proc draw_ball
+    push ax
+
+    push [GREEN] ; Draw a new ball
+    push 3
+    push 3
+    mov ax, [bally]
+    dec ax
+    push ax ;y
+    mov ax, [ballx]
+    dec ax
+    push ax ;x
+    call draw_rect
+
+    pop ax
+    ret
+endp
+
 proc clear_racket
-    push [BLACK] ;; Clear the old racket
+    push [BLACK]
     push 10
     push 52
     push [rackety]
     push [racketx]
     call draw_rect
 
+    ret
+endp
+
+proc draw_racket
+    push [WHITE]
+    push 4
+    push 50
+    push [rackety]
+    push [racketx]
+    call draw_rect
+
+    ret
+endp
+
+proc update_chances
+    cmp [total_bricks], 6
+    jl update_chances_exit
+    mov [pill1_chance], 2
+    mov [pill2_chance], 5
+    mov [pill3_chance], 10
+    cmp [total_bricks], 18
+    jl update_chances_exit
+    mov [pill1_chance], 3
+    mov [pill2_chance], 4
+    mov [pill3_chance], 11
+    cmp [total_bricks], 24
+    jl update_chances_exit
+    mov [pill2_chance], 3
+
+    update_chances_exit:
     ret
 endp
 
@@ -979,7 +1094,7 @@ start:
     call set_background
     
     gameloop:
-        mov ah, 2Ch ;; Loop system: checks every iteration if time has passed
+        mov ah, 2Ch ; Loop system: checks every iteration if time has passed
         int 21h ; ch=hour cl=minute dh=second dl=1/100 second
         cmp dl, [prev_time]
         je gameloop
@@ -992,34 +1107,38 @@ start:
         call clear_pill2
         call clear_pill3
 
-        call key_pressed ;; If no key was pressed, skip input stage
+        call key_pressed ; If no key was pressed, skip input stage
         jz gameloop_calc
 
         call clear_racket
 
-        call get_key ;; Input: jump to the label of the key pressed
+        call get_key ; Input: jump to the label of the key pressed
         cmp al, "d"
         je key_d
         cmp al, "a"
         je key_a
         cmp al, "Q"
-        je key_q
+        je key_Q
+        cmp al, "P"
+        je key_P
         jmp gameloop_calc
 
         key_d:
-            cmp [racketx], 264
+            cmp [racketx], 268
             jg gameloop_calc
             mov ax, [racketspeed]
             add [racketx], ax
             jmp gameloop_calc
         key_a:
-            cmp [racketx], 4
+            cmp [racketx], 2
             jl gameloop_calc
             mov ax, [racketspeed]
             sub [racketx], ax
             jmp gameloop_calc
-        key_q:
+        key_Q:
             jmp exit
+        key_P:
+            mov [total_bricks], 29
         
     gameloop_calc:
         mov ax, [ballspeedx]
@@ -1075,8 +1194,8 @@ start:
             jge lose_exit
             jmp gameloop_draw
 
-
     gameloop_draw:
+        call update_chances
         mov ax, offset bricks_array
         call collide_bricks
         call draw_bricks
@@ -1088,38 +1207,33 @@ start:
         call move_pill2
         call move_pill3
 
-        push [GREEN] ;; Draw a new ball
-        push 3
-        push 3
-        mov ax, [bally]
-        dec ax
-        push ax ;y
-        mov ax, [ballx]
-        dec ax
-        push ax ;x
-        call draw_rect
-
-        push [WHITE] ;; Draw a new racket
-        push 4
-        push 50
-        push [rackety]
-        push [racketx]
-        call draw_rect
+        call draw_ball
+        call draw_racket
 
         call draw_pill1
         call draw_pill2
         call draw_pill3
+
+        mov ax, [racketspeed]
+        add ax, 48
+        push ax
+        push 39
+        push 0
+        call draw_char
         
         jmp gameloop
 
 win_exit:
+    call stop_beep
     call graphic_mode
     call win_screen
     jmp exit
 
 lose_exit:
+    call stop_beep
     call graphic_mode
     call lose_screen
+    jmp exit
 
 exit:
     call stop_beep
