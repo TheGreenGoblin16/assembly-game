@@ -6,6 +6,7 @@ DATASEG
 WHITE dw 0Fh
 BLACK dw 00h
 GREEN dw 48h
+BRIGHT_GREEN dw 5Fh
 
 ; divisor = 1193180 / frequency
 NOTE_C2 dw 18242
@@ -21,11 +22,14 @@ BRICK_WIDTH_PLUS dw 49
 BRICK_HEIGHT_PLUS dw 24
 
 prev_time db 0
+random_num db 1
+random_boolean db 0
 total_bricks db 0
 
 racketx dw 40
 rackety dw 191
 racketspeed dw 4
+rackethit dw 0
 
 ballx dw 55
 bally dw 141
@@ -57,11 +61,11 @@ pill3_velocity db 3
 pill3_counter db 0
 
 ; 28h = red. 2Ah = orange. 2Ch = yellow. 2Fh = lime. 34h = cyan.
-bricks_array dw 11,6,28h,1, 61,6,28h,1, 111,6,28h,1, 161,6,28h,1, 211,6,28h,1, 261,6,28h,1, 11,32,2Ah,1, 61,32,2Ah,1, 111,32,2Ah,1, 161,32,2Ah,1, 211,32,2Ah,1, 261,32,2Ah,1, 11,58,2Ch,1, 61,58,2Ch,1, 111,58,2Ch,1, 161,58,2Ch,1, 211,58,2Ch,1, 261,58,2Ch,1, 11,84,2Fh,1, 61,84,2Fh,1, 111,84,2Fh,1, 161,84,2Fh,1, 211,84,2Fh,1, 261,84,2Fh,1, 11,110,34h,1, 61,110,34h,1, 111,110,34h,1, 161,110,34h,1, 211,110,34h,1, 261,110,34h,1, 0
+bricks_array dw 11,6,28h,4, 61,6,28h,4, 111,6,28h,4, 161,6,28h,4, 211,6,28h,4, 261,6,28h,4, 11,32,2Ah,4, 61,32,2Ah,4, 111,32,2Ah,4, 161,32,2Ah,4, 211,32,2Ah,4, 261,32,2Ah,4, 11,58,2Ch,4, 61,58,2Ch,4, 111,58,2Ch,4, 161,58,2Ch,4, 211,58,2Ch,4, 261,58,2Ch,4, 11,84,2Fh,4, 61,84,2Fh,4, 111,84,2Fh,4, 161,84,2Fh,4, 211,84,2Fh,4, 261,84,2Fh,4, 11,110,34h,4, 61,110,34h,4, 111,110,34h,4, 161,110,34h,4, 211,110,34h,4, 261,110,34h,4, 0
 
-starting_screen_text db "[ Welcome to Breakout 1999! ]", 10,10, "Your goal is to move the racket (white  rectangle), hit the ball with it, and   destroy the bricks. If you let the ball touch the bottom, you'll lose the game!", 10, "There are also sometimes colorful pills falling from bricks, I will let you     discover what they do (;", 10,10, "Controls:", 10, "a,d - move the racket", 10, "shift+Q - force quit", 10,10, "- Press a key to start the game -$"
-win_screen_text db "[ You won! ]", 10,10, "You managed to destroy all the bricks!  Good job! Now get some life and play    outside...", 10,10, "- Press a key to exit -$"
-lose_screen_text db "[ You lost! ]", 10,10, "You didn't hit the ball in time... Oh   no... Now you'll have to do it all over again!", 10,10, "- Press a key to exit -$"
+starting_screen_text db "[ Welcome to Breakout 1999! ]", 10,10, "Your goal is to move the racket (white  rectangle), hit the ball with it, and   destroy the bricks. If you let the ball touch the bottom, you'll lose the game!", 10, "There are also sometimes colorful pills falling from bricks, I will let you     discover what they do (;", 10,10, "Controls:", 10, "a,d - move the racket", 10, "shift+Q - force quit", 10,10, "Made by Ohad K", 10,10,10, "- Press a key to start the game -$"
+win_screen_text db "[ You won! ]", 10,10, "You managed to destroy all the bricks!  Good job! Now get some life and play    outside...", 10,10,10, "- Press a key to exit -$"
+lose_screen_text db "[ You lost! ]", 10,10, "You didn't hit the ball in time... Oh   no... Now you'll have to do it all over again!", 10,10,10, "- Press a key to exit -$"
 
 win_melody dw 2711, 2415, 2031, 2711, 1612, 1,1, 1612, 1,1, 1809, 1,1,1,1, 2711, 2415, 2031, 2711, 1809, 1,1, 1809, 1,1, 2031, 1, 2152, 2415, 1,1, 2711, 2415, 2031, 2711, 2031, 1,1,1, 1809, 1, 2152, 1,1,1, 2711, 1,1, 2711, 1,1, 1809, 1,1, 2031, 0
 lose_melody dw 9663, 9121, 8126, 1, 12175, 1, 10847, 1, 13666, 1, 14478, 0
@@ -165,6 +169,29 @@ proc fix_parity ; variable
     pop si
     pop dx
     pop ax
+    pop bp
+    ret 2
+endp
+
+proc dec_to_zero ; variable
+    push bp
+    mov bp, sp
+    push si
+    push dx
+
+    mov si, [bp+4]
+    mov dx, 0
+    cmp [si], dx
+    jle dec_to_zero_end
+    mov dx, 4
+    cmp [si], dx
+    jge dec_to_zero_end
+    mov dx, 1
+    sub [si], dx
+
+    dec_to_zero_end:
+    pop dx
+    pop si
     pop bp
     ret 2
 endp
@@ -293,6 +320,90 @@ proc draw_char ; column, row, char
     ret 6
 endp
 
+proc init_prg
+    push ax
+
+    mov al, [prev_time]
+    mov [random_num], al
+
+    pop ax
+    ret
+endp
+
+proc generate_prg
+    push ax
+    push dx
+
+    mov al, [random_num] ; (a*x + d) mod m
+    mov dl, 3
+    mul dl
+    add al, 9
+    mov ah, 0
+    mov dl, 17
+    div dl
+    mov [random_num], ah
+
+    pop dx
+    pop ax
+    ret
+endp
+
+proc boolean_prg ; returns al=0 or 1
+    push ax
+
+    call generate_prg
+    mov al, [random_num]
+    and al, 00000001b
+    mov [random_boolean], al
+
+    pop ax
+    ret
+endp
+
+proc draw_random_rect ; x, y, width, height, color
+    push bp
+    mov bp, sp
+    push ax
+    push bx
+    push cx
+    push dx
+
+    mov ax, [bp+4] ;x
+    mov bx, [bp+6] ;y
+    mov dl, [bp+8] ;width
+    mov dh, [bp+10] ;height
+    
+    call init_prg
+    xor cx, cx
+    random_rect_row:
+        mov ax, [bp+4]
+        mov cl, 0
+        random_rect_pixel:
+            call boolean_prg
+            cmp [random_boolean], 1
+            jne random_rect_pixel_continue
+            push [bp+12]
+            push bx
+            push ax
+            call paint_pixel
+            random_rect_pixel_continue:
+            inc ax
+            inc cl
+            cmp cl, dl
+            jle random_rect_pixel
+        inc bx
+        inc ch
+        cmp ch, dh
+        jle random_rect_row
+
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    pop bp
+    ret 10
+endp
+
 proc wait_tenth
     push ax
     push cx
@@ -409,19 +520,31 @@ proc draw_bricks ; ax = bricks array offset, brick[8]=x[2]y[2]color[2]present[2]
         mov ax, [si+6]
         cmp ax, 0
         je draw_bricks_nonpresent
+        cmp ax, 4
+        jl draw_bricks_broken
         push [si+4]
+        jmp draw_bricks_present
+
+        draw_bricks_broken:
+        push [BLACK]
+        push [BRICK_HEIGHT]
+        push [BRICK_WIDTH]
+        push [si+2]
+        push [si+0]
+        call draw_random_rect
         jmp draw_bricks_continue
 
         draw_bricks_nonpresent:
         push [BLACK]
         
-        draw_bricks_continue:
+        draw_bricks_present:
         push [BRICK_HEIGHT]
         push [BRICK_WIDTH]
         push [si+2]
         push [si+0]
         call draw_rect
         
+        draw_bricks_continue:
         add si, 8
         jmp draw_bricks_loop
 
@@ -431,8 +554,7 @@ proc draw_bricks ; ax = bricks array offset, brick[8]=x[2]y[2]color[2]present[2]
     ret
 endp
 
-; check if ball is in collision with a brick given as params
-proc collision_field ; x, y   ; ax... 0=none, 1=top/buttom, 2=left/right, 3=corners
+proc collision_field ; x, y
     push bp
     mov bp, sp
     push bx
@@ -445,14 +567,14 @@ proc collision_field ; x, y   ; ax... 0=none, 1=top/buttom, 2=left/right, 3=corn
         mov dx, [bp+6] ;y
         sub dx, 1
         cmp dx, [bally]
-        jne buttom_collision
+        jne bottom_collision
         sub cx, 2
         mov dx, [ballx]
         sub dx, cx
         cmp dx, [BRICK_WIDTH_PLUS]
-        ja buttom_collision
-        add al, 1
-    buttom_collision:
+        ja bottom_collision
+        add al, 7
+    bottom_collision:
         mov cx, [bp+4]
         mov dx, [bp+6]
         add dx, [BRICK_HEIGHT]
@@ -464,7 +586,7 @@ proc collision_field ; x, y   ; ax... 0=none, 1=top/buttom, 2=left/right, 3=corn
         sub dx, cx
         cmp dx, [BRICK_WIDTH_PLUS]
         ja left_collision
-        add al, 1
+        add al, 4
     left_collision:
         mov cx, [bp+4]
         mov dx, [bp+6]
@@ -476,7 +598,7 @@ proc collision_field ; x, y   ; ax... 0=none, 1=top/buttom, 2=left/right, 3=corn
         sub cx, dx
         cmp cx, [BRICK_HEIGHT_PLUS]
         ja right_collision
-        add al, 2
+        add al, 5
     right_collision:
         mov cx, [bp+4]
         mov dx, [bp+6]
@@ -489,7 +611,7 @@ proc collision_field ; x, y   ; ax... 0=none, 1=top/buttom, 2=left/right, 3=corn
         sub cx, dx
         cmp cx, [BRICK_HEIGHT_PLUS]
         ja collision_field_end
-        add al, 2
+        add al, 6
 
     collision_field_end:
     pop dx
@@ -499,7 +621,7 @@ proc collision_field ; x, y   ; ax... 0=none, 1=top/buttom, 2=left/right, 3=corn
     ret 4
 endp
 
-; check if ball is in collision with any brick
+; order is fucked up because assembly is annoying with jumps
 proc collide_bricks ; ax = bricks array offset
     push ax
     push si
@@ -511,34 +633,71 @@ proc collide_bricks ; ax = bricks array offset
         je collide_bricks_end
 
         mov ax, [si+6]
-        cmp ax, 0
-        je collide_bricks_continue
+        cmp ax, 4
+        jl collide_bricks_continue
+        jmp collide_bricks_present
 
+        collide_bricks_continue:
+            mov ax, si
+            add ax, 6
+            push ax
+            call dec_to_zero
+            add si, 8
+            jmp collide_bricks_loop
+
+        collide_bricks_end:
+            pop si
+            pop ax
+            ret
+
+        collide_bricks_present:
         push [si+2]
         push [si+0]
         call collision_field
-        cmp al, 1
-        je collide_bricks_top_buttom
-        cmp al, 2
+        cmp al, 4
+        je collide_bricks_top_bottom
+        cmp al, 7
+        je collide_bricks_top_bottom
+        cmp al, 5
         je collide_bricks_left_right
-        cmp al, 3
-        je collide_bricks_corner
+        cmp al, 6
+        je collide_bricks_left_right
+        cmp al, 9
+        je collide_bricks_bottom_left
+        cmp al, 10
+        je collide_bricks_bottom_right
+        cmp al, 12
+        je collide_bricks_top_left
+        cmp al, 13
+        je collide_bricks_top_right
         cmp al, 0
         je collide_bricks_continue
         
-        collide_bricks_top_buttom:
+        collide_bricks_top_bottom:
             neg [ballspeedy]
             jmp collide_bricks_destroy
         collide_bricks_left_right:
             neg [ballspeedx]
             jmp collide_bricks_destroy
-        collide_bricks_corner:
-            neg [ballspeedx]
-            neg [ballspeedy]
+        collide_bricks_bottom_left:
+            mov [ballspeedx], -2
+            mov [ballspeedy], 2
+            jmp collide_bricks_destroy
+        collide_bricks_bottom_right:
+            mov [ballspeedx], 2
+            mov [ballspeedy], 2
+            jmp collide_bricks_destroy
+        collide_bricks_top_left:
+            mov [ballspeedx], -2
+            mov [ballspeedy], -2
+            jmp collide_bricks_destroy
+        collide_bricks_top_right:
+            mov [ballspeedx], 2
+            mov [ballspeedy], -2
             jmp collide_bricks_destroy
 
         collide_bricks_destroy:
-            mov ax, 0
+            mov ax, 3
             mov [si+6], ax
             call revert_ballspeedx
             push [NOTE_C4]
@@ -548,15 +707,6 @@ proc collide_bricks ; ax = bricks array offset
             call spawn_pill3
             inc [total_bricks]
             jmp collide_bricks_continue
-
-        collide_bricks_continue:
-        add si, 8
-        jmp collide_bricks_loop
-
-    collide_bricks_end:
-    pop si
-    pop ax
-    ret
 endp
 
 ; PILLS PROCEDURES START HERE
@@ -1055,7 +1205,16 @@ proc clear_racket
 endp
 
 proc draw_racket
+
+    cmp [rackethit], 1
+    jge draw_racket_hit
     push [WHITE]
+    jmp draw_racket_continue
+
+    draw_racket_hit:
+    push [BRIGHT_GREEN]
+
+    draw_racket_continue:
     push 4
     push 50
     push [rackety]
@@ -1124,13 +1283,13 @@ start:
         jmp gameloop_calc
 
         key_d:
-            cmp [racketx], 268
+            cmp [racketx], 264
             jg gameloop_calc
             mov ax, [racketspeed]
             add [racketx], ax
             jmp gameloop_calc
         key_a:
-            cmp [racketx], 2
+            cmp [racketx], 4
             jl gameloop_calc
             mov ax, [racketspeed]
             sub [racketx], ax
@@ -1145,6 +1304,9 @@ start:
         add [ballx], ax
         mov ax, [ballspeedy]
         add [bally], ax
+        
+        push offset rackethit
+        call dec_to_zero
 
         cmp [ballx], 317
         jge sides_boundry
@@ -1182,12 +1344,14 @@ start:
             call mov_signed
             push [NOTE_G3]
             call play_beep
+            mov [rackethit], 3
             jmp gameloop_draw
         racket_boundry_center:
             neg [ballspeedy]
             call revert_ballspeedx
             push [NOTE_F3]
             call play_beep
+            mov [rackethit], 3
             jmp gameloop_draw
         racket_boundry_through:
             cmp [bally], 197
